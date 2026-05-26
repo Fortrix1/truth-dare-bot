@@ -119,6 +119,11 @@ function getLeaderboard(chatId) {
   return getPlayers(chatId).sort((a, b) => b.points - a.points || (b.alive ? 1 : -1));
 }
 
+function getAllPlayerEntries(userId) {
+  const data = load();
+  return Object.values(data.players || {}).filter(p => p.user_id === userId);
+}
+
 // ── CUSTOM QUESTIONS ──────────────────────────────────────────────────────
 
 function addCustomQuestion(type, question) {
@@ -136,6 +141,6 @@ function getCustomQuestions() {
 module.exports = {
   init, getGame, createGame, updateGame, endGame, resetGame,
   addPlayer, getPlayers, getPlayer, addPoints, deductPoints,
-  eliminatePlayer, incrementTurnCount, getLeaderboard,
+  eliminatePlayer, incrementTurnCount, getLeaderboard, getAllPlayerEntries,
   addCustomQuestion, getCustomQuestions,
 };

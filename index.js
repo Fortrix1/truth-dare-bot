@@ -233,13 +233,7 @@ bot.action("show:points", async (ctx) => {
 bot.action("show:score", async (ctx) => {
   await ctx.answerCbQuery();
   const userId = String(ctx.from.id);
-
-  // Find all games this player is in
-  const data = require("fs").existsSync("./data.json")
-    ? JSON.parse(require("fs").readFileSync("./data.json", "utf8"))
-    : { players: {} };
-
-  const myEntries = Object.values(data.players || {}).filter(p => p.user_id === userId);
+  const myEntries = db.getAllPlayerEntries(userId);
 
   if (!myEntries.length) {
     return ctx.editMessageText(
@@ -248,11 +242,7 @@ bot.action("show:score", async (ctx) => {
     );
   }
 
-  const lines = myEntries.map(p => {
-    const status = p.alive ? "🟢 Active" : "💀 Eliminated";
-    return `• ${p.points} pts — ${status}`;
-  });
-
+  const lines = myEntries.map(p => `• ${p.points} pts — ${p.alive ? "🟢 Active" : "💀 Eliminated"}`);
   await ctx.editMessageText(
     `📊 *Your Stats*\n\n${lines.join("\n")}\n\nKeep playing to earn more points!`,
     {
@@ -341,15 +331,11 @@ bot.command("startgame", async (ctx) => {
 
 bot.command("score", async (ctx) => {
   if (ctx.chat.type === "private") {
-    // Show personal score across all games
     const userId = String(ctx.from.id);
-    const data = require("fs").existsSync("./data.json")
-      ? JSON.parse(require("fs").readFileSync("./data.json", "utf8"))
-      : { players: {} };
-    const myEntries = Object.values(data.players || {}).filter(p => p.user_id === userId);
-    if (!myEntries.length) return ctx.reply("📊 You haven't played any games yet! Join a group and use /join.");
+    const myEntries = db.getAllPlayerEntries(userId);
+    if (!myEntries.length) return ctx.reply("📊 You haven't played any games yet!\n\nJoin a group, use /join and start playing!");
     const lines = myEntries.map(p => `• ${p.points} pts — ${p.alive ? "🟢 Active" : "💀 Eliminated"}`);
-    return ctx.reply(`📊 *Your Score*\n\n${lines.join("\n")}`, { parse_mode: "Markdown" });
+    return ctx.reply(`📊 *Your Score*\n\n${lines.join("\n")}\n\nKeep playing to earn more points! 💪`, { parse_mode: "Markdown" });
   }
   const chatId = String(ctx.chat.id);
   const board = db.getLeaderboard(chatId);
