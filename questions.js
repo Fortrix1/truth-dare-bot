@@ -53,4 +53,6 @@ module.exports = {
   getRandomDare: () => getRandom(dares),
   truths,
   dares,
+  addTruth: (q) => truths.push(q),
+  addDare: (q) => dares.push(q),
 };

@@ -1,19 +1,21 @@
 const db = require("./db");
-const { getRandomTruth, getRandomDare } = require("./questions");
-
-function pickTwo(players) {
-  const shuffled = [...players].sort(() => Math.random() - 0.5);
-  return [shuffled[0], shuffled[1]];
-}
 
 function displayName(player) {
   return player.username ? `@${player.username}` : player.first_name;
 }
 
-function pickNextTurn(chatId) {
+// Fair rotation: pick the player with fewest turns in each role
+function pickNextPair(chatId) {
   const alive = db.getPlayers(chatId, true);
   if (alive.length < 2) return null;
-  const [questioner, target] = pickTwo(alive);
+
+  // Pick target: alive player with fewest turns as target
+  const target = [...alive].sort((a, b) => a.turns_as_target - b.turns_as_target)[0];
+
+  // Pick questioner: alive player with fewest turns as questioner, excluding target
+  const others = alive.filter(p => p.user_id !== target.user_id);
+  const questioner = [...others].sort((a, b) => a.turns_as_questioner - b.turns_as_questioner)[0];
+
   return { questioner, target };
 }
 
@@ -54,22 +56,13 @@ function advanceRound(chatId) {
   const game = db.getGame(chatId);
   db.updateGame(chatId, {
     round: (game.round || 0) + 1,
-    current_questioner: null,
-    current_target: null,
-    current_choice: null,
-    current_question: null,
+    current_questioner: null, current_target: null,
+    current_choice: null, current_question: null,
+    waiting_answer: false,
   });
 }
 
 module.exports = {
-  pickNextTurn,
-  startGame,
-  recordChoice,
-  handleDone,
-  handleFail,
-  checkWinner,
-  advanceRound,
-  displayName,
-  getRandomTruth,
-  getRandomDare,
+  pickNextPair, startGame, recordChoice,
+  handleDone, handleFail, checkWinner, advanceRound, displayName,
 };
