@@ -85,17 +85,26 @@ async function sendQuestionPicker(ctx, questionerId, targetId, chatId, choice) {
 
 async function postChallengeToGroup(ctx, chatId, targetId, choice, question) {
   const target = db.getPlayer(chatId, targetId);
+  const game = db.getGame(chatId);
+  const questionerId = game.current_questioner;
   db.updateGame(chatId, { waiting_answer: true });
 
+  const dmUrl = `https://t.me/${global.BOT_USERNAME || BOT_USERNAME}`;
+
   await ctx.telegram.sendMessage(chatId,
-    `🎯 *Challenge!*\n\n${displayName(target)} must answer this *${choice === "truth" ? "🤔 Truth" : "🔥 Dare"}*:\n\n_"${question}"_\n\n⏰ ${TURN_TIMEOUT} seconds to answer in DMs!\n\n${botLink()}`,
-    { parse_mode: "Markdown" }
+    `🎯 *Challenge!*\n\n${displayName(target)} must answer this *${choice === "truth" ? "🤔 Truth" : "🔥 Dare"}*:\n\n_"${question}"_\n\n⏰ *${TURN_TIMEOUT} seconds* to answer in DMs!\n\n${displayName(target)}, open the bot and type your answer there 👇`,
+    {
+      parse_mode: "Markdown",
+      ...Markup.inlineKeyboard([
+        [Markup.button.url("📱 Open Bot DM to Answer", dmUrl)],
+      ])
+    }
   );
 
-  // DM the target telling them to answer
+  // DM the target
   try {
     await ctx.telegram.sendMessage(targetId,
-      `⏰ *You have ${TURN_TIMEOUT} seconds!*\n\nYour challenge:\n\n_"${question}"_\n\n📝 Type your answer here (or send a photo as proof). It will be posted to the group!\n\n💡 Options:\n• Just type/send your answer\n• Use /skip to skip (costs 200 pts)\n• Use /custom to send a custom reply (costs 100 pts)`,
+      `⏰ *You have ${TURN_TIMEOUT} seconds!*\n\nYour challenge:\n\n_"${question}"_\n\n📝 *Type your answer here* (or send a photo as proof).\nIt will be posted to the group automatically!\n\n💡 Other options:\n• /skip — Skip your turn (costs 200 pts)\n• /custom — Write a custom reply (costs 100 pts)`,
       { parse_mode: "Markdown" }
     );
   } catch (e) {}
@@ -133,9 +142,16 @@ async function sendNextTurn(ctx, chatId) {
 
   const game = db.getGame(chatId);
 
+  const dmUrl = `https://t.me/${global.BOT_USERNAME || BOT_USERNAME}`;
+
   await ctx.telegram.sendMessage(chatId,
-    `🎲 *Round ${game.round}!*\n\n🎤 Questioner: ${displayName(questioner)}\n🎯 Target: ${displayName(target)}\n\n${displayName(target)}, check your DMs and pick Truth or Dare!\n\n${botLink()}`,
-    { parse_mode: "Markdown" }
+    `🎲 *Round ${game.round}!*\n\n🎤 Questioner: ${displayName(questioner)}\n🎯 Target: ${displayName(target)}\n\n${displayName(target)}, open the bot DM to pick Truth or Dare!\n${displayName(questioner)}, stand by — you'll pick the question next!`,
+    {
+      parse_mode: "Markdown",
+      ...Markup.inlineKeyboard([
+        [Markup.button.url("📱 Open Bot DM", dmUrl)],
+      ])
+    }
   );
 
   try {
@@ -155,31 +171,131 @@ async function sendNextTurn(ctx, chatId) {
 bot.start(async (ctx) => {
   if (ctx.chat.type === "private") {
     await ctx.reply(
-      "👋 Hey! I'm the *Truth or Dare Bot*!\n\nAdd me to a group to play with friends!\n\n📖 Commands:\n/join — Join the game\n/startgame — Start (host)\n/score — Leaderboard\n/rules — How to play\n/newgame — Reset",
-      { parse_mode: "Markdown" }
+      `👋 Hey *${ctx.from.first_name}*! I'm the *Truth or Dare Bot*! 🎭\n\nAdd me to a group to play with friends!\n\nWhat do you want to do?`,
+      {
+        parse_mode: "Markdown",
+        ...Markup.inlineKeyboard([
+          [Markup.button.callback("📖 How to Play", "show:rules")],
+          [Markup.button.callback("📊 My Score", "show:score")],
+          [Markup.button.callback("💰 Points Guide", "show:points")],
+        ])
+      }
     );
   }
 });
 
+bot.action("show:rules", async (ctx) => {
+  await ctx.answerCbQuery();
+  const username = global.BOT_USERNAME || BOT_USERNAME;
+  await ctx.editMessageText(
+    `📖 *How to Play*\n\n` +
+    `*Setting up:*\n` +
+    `1. Add me to a group\n` +
+    `2. Everyone sends /join in the group\n` +
+    `3. Host sends /startgame\n\n` +
+    `*Each round:*\n` +
+    `4. Bot picks Questioner & Target fairly\n` +
+    `5. Target opens DM → picks Truth or Dare\n` +
+    `6. Questioner opens DM → picks the question\n` +
+    `7. Target has ⏰ *30 seconds* to answer in DMs\n` +
+    `8. Answer is posted to the group automatically\n` +
+    `9. Questioner clicks ✅ Answered or ❌ Failed\n` +
+    `10. Fail = eliminated. Last one standing wins!\n\n` +
+    `👉 [Open a group and add me](https://t.me/${username})`,
+    {
+      parse_mode: "Markdown",
+      ...Markup.inlineKeyboard([[Markup.button.callback("⬅️ Back", "show:home")]])
+    }
+  );
+});
+
+bot.action("show:points", async (ctx) => {
+  await ctx.answerCbQuery();
+  await ctx.editMessageText(
+    `💰 *Points Guide*\n\n` +
+    `*Earning points:*\n` +
+    `✅ +5 pts — Answer a challenge\n\n` +
+    `*Spending points:*\n` +
+    `✍️ 100 pts — Write a custom question this round\n` +
+    `🏊 150 pts — Add your question to the pool forever\n` +
+    `⏭️ 200 pts — Skip your turn\n\n` +
+    `*How to spend:*\n` +
+    `• When it's your turn, you'll see options in DM\n` +
+    `• Type /skip in DM to skip (costs 200 pts)\n` +
+    `• Type /custom in DM to write custom reply (100 pts)`,
+    {
+      parse_mode: "Markdown",
+      ...Markup.inlineKeyboard([[Markup.button.callback("⬅️ Back", "show:home")]])
+    }
+  );
+});
+
+bot.action("show:score", async (ctx) => {
+  await ctx.answerCbQuery();
+  const userId = String(ctx.from.id);
+
+  // Find all games this player is in
+  const data = require("fs").existsSync("./data.json")
+    ? JSON.parse(require("fs").readFileSync("./data.json", "utf8"))
+    : { players: {} };
+
+  const myEntries = Object.values(data.players || {}).filter(p => p.user_id === userId);
+
+  if (!myEntries.length) {
+    return ctx.editMessageText(
+      "📊 You haven't played any games yet!\n\nJoin a group and use /join to start playing.",
+      { ...Markup.inlineKeyboard([[Markup.button.callback("⬅️ Back", "show:home")]]) }
+    );
+  }
+
+  const lines = myEntries.map(p => {
+    const status = p.alive ? "🟢 Active" : "💀 Eliminated";
+    return `• ${p.points} pts — ${status}`;
+  });
+
+  await ctx.editMessageText(
+    `📊 *Your Stats*\n\n${lines.join("\n")}\n\nKeep playing to earn more points!`,
+    {
+      parse_mode: "Markdown",
+      ...Markup.inlineKeyboard([[Markup.button.callback("⬅️ Back", "show:home")]])
+    }
+  );
+});
+
+bot.action("show:home", async (ctx) => {
+  await ctx.answerCbQuery();
+  await ctx.editMessageText(
+    `👋 Hey *${ctx.from.first_name}*! I'm the *Truth or Dare Bot*! 🎭\n\nAdd me to a group to play with friends!\n\nWhat do you want to do?`,
+    {
+      parse_mode: "Markdown",
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback("📖 How to Play", "show:rules")],
+        [Markup.button.callback("📊 My Score", "show:score")],
+        [Markup.button.callback("💰 Points Guide", "show:points")],
+      ])
+    }
+  );
+});
+
 bot.command("rules", async (ctx) => {
+  const username = global.BOT_USERNAME || BOT_USERNAME;
   await ctx.reply(
-    `📖 *Truth or Dare — Rules*\n\n` +
-    `1. Everyone does /join in the group\n` +
-    `2. Host does /startgame\n` +
-    `3. Each round: a Questioner and Target are picked fairly\n` +
-    `4. Target chooses Truth or Dare via DM\n` +
-    `5. Questioner picks the question from a list\n` +
-    `6. Target has *30 seconds* to answer in DMs\n` +
-    `7. Answer is posted to the group\n` +
-    `8. Questioner marks as ✅ Answered or ❌ Failed\n` +
-    `9. Fail = eliminated. Last one standing wins!\n\n` +
-    `💰 *Points System:*\n` +
-    `• +5 pts — Answer a challenge\n` +
-    `• 100 pts — Send a custom question this round\n` +
-    `• 150 pts — Add question to the pool permanently\n` +
-    `• 200 pts — Skip your turn\n\n` +
-    `⏰ *Timer:* 30 seconds to answer or you're out!\n\n` +
-    `${botLink()}`,
+    `📖 *How to Play*\n\n` +
+    `1. Everyone sends /join in the group\n` +
+    `2. Host sends /startgame (need 2+ players)\n` +
+    `3. Bot picks Questioner & Target fairly each round\n` +
+    `4. Target opens bot DM → picks Truth or Dare\n` +
+    `5. Questioner opens bot DM → picks the question\n` +
+    `6. Target has ⏰ *30 seconds* to type/send answer in DM\n` +
+    `7. Answer is posted to the group automatically\n` +
+    `8. Questioner clicks ✅ Answered or ❌ Failed\n` +
+    `9. Fail = eliminated. Last standing wins!\n\n` +
+    `💰 *Points:*\n` +
+    `• ✅ +5 pts — Answer a challenge\n` +
+    `• ✍️ 100 pts — Custom question this round\n` +
+    `• 🏊 150 pts — Add to pool permanently\n` +
+    `• ⏭️ 200 pts — Skip your turn\n\n` +
+    `👉 [Open Bot DM](https://t.me/${username})`,
     { parse_mode: "Markdown" }
   );
 });
@@ -224,7 +340,17 @@ bot.command("startgame", async (ctx) => {
 });
 
 bot.command("score", async (ctx) => {
-  if (ctx.chat.type === "private") return;
+  if (ctx.chat.type === "private") {
+    // Show personal score across all games
+    const userId = String(ctx.from.id);
+    const data = require("fs").existsSync("./data.json")
+      ? JSON.parse(require("fs").readFileSync("./data.json", "utf8"))
+      : { players: {} };
+    const myEntries = Object.values(data.players || {}).filter(p => p.user_id === userId);
+    if (!myEntries.length) return ctx.reply("📊 You haven't played any games yet! Join a group and use /join.");
+    const lines = myEntries.map(p => `• ${p.points} pts — ${p.alive ? "🟢 Active" : "💀 Eliminated"}`);
+    return ctx.reply(`📊 *Your Score*\n\n${lines.join("\n")}`, { parse_mode: "Markdown" });
+  }
   const chatId = String(ctx.chat.id);
   const board = db.getLeaderboard(chatId);
   if (!board.length) return ctx.reply("No players yet!");
@@ -515,35 +641,39 @@ bot.on("message", async (ctx) => {
     delete pendingTargets[userId];
 
     const player = db.getPlayer(chatId, userId);
-    await ctx.reply("✅ Answer sent to the group!");
+    const questionerId = game.current_questioner;
+    await ctx.reply("✅ Answer sent to the group! Waiting for questioner to mark it...");
 
-    // Forward answer to group
+    // Post answer to group — NO buttons here (so only questioner can judge)
     if (ctx.message.photo) {
-      // It's a photo
       const photo = ctx.message.photo[ctx.message.photo.length - 1];
       await ctx.telegram.sendPhoto(chatId, photo.file_id, {
         caption: `📸 *${displayName(player)}'s answer:*${ctx.message.caption ? "\n" + ctx.message.caption : ""}`,
         parse_mode: "Markdown",
-        ...Markup.inlineKeyboard([[
-          Markup.button.callback("✅ Answered (+5 pts)", `answered:${chatId}`),
-          Markup.button.callback("❌ Failed", `fail:${chatId}`),
-        ]])
       });
     } else if (ctx.message.text) {
       await ctx.telegram.sendMessage(chatId,
         `💬 *${displayName(player)}'s answer:*\n\n"${ctx.message.text}"`,
-        {
-          parse_mode: "Markdown",
-          ...Markup.inlineKeyboard([[
-            Markup.button.callback("✅ Answered (+5 pts)", `answered:${chatId}`),
-            Markup.button.callback("❌ Failed", `fail:${chatId}`),
-          ]])
-        }
+        { parse_mode: "Markdown" }
       );
     } else if (ctx.message.voice) {
       await ctx.telegram.forwardMessage(chatId, ctx.chat.id, ctx.message.message_id);
       await ctx.telegram.sendMessage(chatId,
         `🎤 *${displayName(player)} sent a voice message as their answer!*`,
+        { parse_mode: "Markdown" }
+      );
+    } else {
+      await ctx.telegram.forwardMessage(chatId, ctx.chat.id, ctx.message.message_id);
+      await ctx.telegram.sendMessage(chatId,
+        `*${displayName(player)} sent their answer above!*`,
+        { parse_mode: "Markdown" }
+      );
+    }
+
+    // Send DONE/FAIL buttons ONLY to the questioner's DM
+    try {
+      await ctx.telegram.sendMessage(questionerId,
+        `👀 *${displayName(player)} has answered!*\n\nCheck the group to see their answer, then mark it:`,
         {
           parse_mode: "Markdown",
           ...Markup.inlineKeyboard([[
@@ -552,18 +682,10 @@ bot.on("message", async (ctx) => {
           ]])
         }
       );
-    } else {
-      // Other media - forward it
-      await ctx.telegram.forwardMessage(chatId, ctx.chat.id, ctx.message.message_id);
+    } catch (e) {
+      // Questioner has no DM open — post buttons in group as fallback with note
       await ctx.telegram.sendMessage(chatId,
-        `*${displayName(player)} sent their answer above!*`,
-        {
-          parse_mode: "Markdown",
-          ...Markup.inlineKeyboard([[
-            Markup.button.callback("✅ Answered (+5 pts)", `answered:${chatId}`),
-            Markup.button.callback("❌ Failed", `fail:${chatId}`),
-          ]])
-        }
+        `⚠️ Questioner needs to open bot DM to judge!\n\n${displayName(player)}, the questioner hasn't started the bot in DM. Ask them to tap Start in the bot first.`
       );
     }
     return;
