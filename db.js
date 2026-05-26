@@ -1,38 +1,11 @@
-const sqlite3 = require("sqlite3").verbose();
+const Database = require("better-sqlite3");
 const path = require("path");
 
 const DB_PATH = path.join(__dirname, "game.db");
-const db = new sqlite3.Database(DB_PATH);
+const db = new Database(DB_PATH);
 
-function run(sql, params = []) {
-  return new Promise((resolve, reject) => {
-    db.run(sql, params, function (err) {
-      if (err) reject(err);
-      else resolve(this);
-    });
-  });
-}
-
-function get(sql, params = []) {
-  return new Promise((resolve, reject) => {
-    db.get(sql, params, (err, row) => {
-      if (err) reject(err);
-      else resolve(row);
-    });
-  });
-}
-
-function all(sql, params = []) {
-  return new Promise((resolve, reject) => {
-    db.all(sql, params, (err, rows) => {
-      if (err) reject(err);
-      else resolve(rows);
-    });
-  });
-}
-
-async function init() {
-  await run(`
+function init() {
+  db.exec(`
     CREATE TABLE IF NOT EXISTS players (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       chat_id TEXT NOT NULL,
@@ -43,10 +16,7 @@ async function init() {
       alive INTEGER DEFAULT 1,
       joined_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       UNIQUE(chat_id, user_id)
-    )
-  `);
-
-  await run(`
+    );
     CREATE TABLE IF NOT EXISTS games (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       chat_id TEXT UNIQUE NOT NULL,
@@ -58,90 +28,65 @@ async function init() {
       round INTEGER DEFAULT 0,
       started_at DATETIME,
       ended_at DATETIME
-    )
+    );
   `);
 }
 
-// ── GAME ──────────────────────────────────────────────────────────────────
-
-async function getGame(chatId) {
-  return get("SELECT * FROM games WHERE chat_id = ?", [chatId]);
+function getGame(chatId) {
+  return db.prepare("SELECT * FROM games WHERE chat_id = ?").get(chatId);
 }
 
-async function createGame(chatId) {
-  await run(
-    "INSERT OR REPLACE INTO games (chat_id, status) VALUES (?, 'waiting')",
-    [chatId]
-  );
+function createGame(chatId) {
+  db.prepare("INSERT OR REPLACE INTO games (chat_id, status) VALUES (?, 'waiting')").run(chatId);
 }
 
-async function updateGame(chatId, fields) {
+function updateGame(chatId, fields) {
   const keys = Object.keys(fields);
   const sets = keys.map((k) => `${k} = ?`).join(", ");
   const vals = keys.map((k) => fields[k]);
-  await run(`UPDATE games SET ${sets} WHERE chat_id = ?`, [...vals, chatId]);
+  db.prepare(`UPDATE games SET ${sets} WHERE chat_id = ?`).run(...vals, chatId);
 }
 
-async function endGame(chatId) {
-  await run(
-    "UPDATE games SET status = 'ended', ended_at = CURRENT_TIMESTAMP WHERE chat_id = ?",
-    [chatId]
-  );
+function endGame(chatId) {
+  db.prepare("UPDATE games SET status = 'ended', ended_at = CURRENT_TIMESTAMP WHERE chat_id = ?").run(chatId);
 }
 
-async function resetGame(chatId) {
-  await run("DELETE FROM games WHERE chat_id = ?", [chatId]);
-  await run("DELETE FROM players WHERE chat_id = ?", [chatId]);
+function resetGame(chatId) {
+  db.prepare("DELETE FROM games WHERE chat_id = ?").run(chatId);
+  db.prepare("DELETE FROM players WHERE chat_id = ?").run(chatId);
 }
 
-// ── PLAYERS ───────────────────────────────────────────────────────────────
-
-async function addPlayer(chatId, userId, username, firstName) {
+function addPlayer(chatId, userId, username, firstName) {
   try {
-    await run(
-      "INSERT INTO players (chat_id, user_id, username, first_name) VALUES (?, ?, ?, ?)",
-      [chatId, userId, username || null, firstName || "Player"]
-    );
+    db.prepare("INSERT INTO players (chat_id, user_id, username, first_name) VALUES (?, ?, ?, ?)").run(chatId, userId, username || null, firstName || "Player");
     return true;
   } catch (e) {
-    if (e.message.includes("UNIQUE")) return false; // already joined
+    if (e.message.includes("UNIQUE")) return false;
     throw e;
   }
 }
 
-async function getPlayers(chatId, aliveOnly = false) {
+function getPlayers(chatId, aliveOnly = false) {
   const sql = aliveOnly
     ? "SELECT * FROM players WHERE chat_id = ? AND alive = 1 ORDER BY joined_at"
     : "SELECT * FROM players WHERE chat_id = ? ORDER BY joined_at";
-  return all(sql, [chatId]);
+  return db.prepare(sql).all(chatId);
 }
 
-async function getPlayer(chatId, userId) {
-  return get("SELECT * FROM players WHERE chat_id = ? AND user_id = ?", [
-    chatId,
-    userId,
-  ]);
+function getPlayer(chatId, userId) {
+  return db.prepare("SELECT * FROM players WHERE chat_id = ? AND user_id = ?").get(chatId, userId);
 }
 
-async function addPoints(chatId, userId, pts) {
-  await run(
-    "UPDATE players SET points = points + ? WHERE chat_id = ? AND user_id = ?",
-    [pts, chatId, userId]
-  );
+function addPoints(chatId, userId, pts) {
+  db.prepare("UPDATE players SET points = points + ? WHERE chat_id = ? AND user_id = ?").run(pts, chatId, userId);
 }
 
-async function eliminatePlayer(chatId, userId) {
-  await run(
-    "UPDATE players SET alive = 0 WHERE chat_id = ? AND user_id = ?",
-    [chatId, userId]
-  );
+function eliminatePlayer(chatId, userId) {
+  db.prepare("UPDATE players SET alive = 0 WHERE chat_id = ? AND user_id = ?").run(chatId, userId);
 }
 
-async function getLeaderboard(chatId) {
-  return all(
-    "SELECT * FROM players WHERE chat_id = ? ORDER BY points DESC, alive DESC",
-    [chatId]
-  );
+function getLeaderboard(chatId) {
+  return db.prepare("SELECT * FROM players WHERE chat_id = ? ORDER BY points DESC, alive DESC").all(chatId);
 }
 
 module.exports = {
